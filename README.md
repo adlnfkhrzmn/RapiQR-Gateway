@@ -1,55 +1,61 @@
 # RapiQR Gateway
 
-RapiQR Gateway adalah fondasi backend dan dashboard untuk mengatur alur pembayaran. Project ini menangani data transaksi, status pembayaran, dan notifikasi ke aplikasi merchant. Untuk terhubung ke layanan pembayaran, kamu bisa menambahkan adapter sendiri sesuai provider yang digunakan.
+RapiQR Gateway adalah project open-source untuk membantu website toko mengatur pembayaran. Aplikasi ini punya halaman pengelolaan dan API untuk mencatat transaksi, melihat statusnya, lalu mengirim kabar ke website toko.
 
-Belum ada provider yang langsung terpasang. Jadi, setelah project dijalankan dashboard-nya bisa dibuka, tetapi transaksi baru belum bisa dibuat sampai adapter diatur. Project ini juga tidak menyediakan akun merchant atau QRIS dan tidak langsung menerima uang.
+**Project ini belum terhubung ke layanan pembayaran mana pun.** Setelah dijalankan, halaman pengelolaan sudah bisa dibuka, tetapi pembayaran sungguhan belum bisa dibuat. Agar pembayaran bisa berjalan, developer perlu menyambungkan RapiQR ke layanan pembayaran yang dipilih. RapiQR sendiri tidak menerbitkan QRIS dan tidak menerima uang.
 
-Source code ini berlisensi MIT. Kamu bebas memakai dan mengubahnya. Biaya hosting dan biaya dari provider mengikuti layanan yang kamu pilih.
+Project ini berlisensi MIT. Kamu bebas memakai dan mengubah source code-nya. Biaya server atau layanan pembayaran mengikuti pilihan masing-masing pengguna.
 
-## Yang tersedia
+## Fitur
 
-- API untuk membuat, melihat, dan membatalkan transaksi.
-- Pencegahan transaksi ganda saat `merchant_reference` yang sama dikirim ulang.
-- Status transaksi: `creating`, `pending`, `paid`, `expired`, `cancelled`, dan `failed`.
-- Database SQLite untuk menyimpan transaksi, riwayat status, dan antrean webhook.
-- Webhook merchant dengan tanda tangan HMAC-SHA256 dan pengiriman ulang otomatis.
-- Dashboard untuk melihat transaksi dan aktivitas terbaru.
-- Adapter yang bisa dikembangkan untuk provider pembayaran pilihanmu.
+- Membuat, melihat, dan membatalkan transaksi lewat API.
+- Mencegah transaksi ganda jika nomor referensi yang sama dikirim ulang.
+- Menyimpan transaksi dan riwayat status di database SQLite.
+- Mengirim kabar otomatis (webhook) ke website toko saat status pembayaran berubah.
+- Menampilkan transaksi dan aktivitas terbaru di dashboard.
+- Menyediakan tempat untuk menambahkan integrasi layanan pembayaran pilihanmu.
 
-## Yang dibutuhkan
+## Yang perlu disiapkan
 
-- Node.js 22.13 atau lebih baru.
-- Adapter untuk provider yang ingin kamu hubungkan.
-- Penyimpanan permanen untuk folder `data/`.
+- Node.js versi 22.13 atau lebih baru.
+- Server dengan folder penyimpanan yang tidak terhapus saat aplikasi dimulai ulang.
 
-Project ini memakai modul `node:sqlite` bawaan Node.js, jadi Node.js 18.x dan 20.x belum bisa menjalankannya. Modul SQLite tersebut masih berstatus experimental pada Node.js 22.x, jadi periksa kembali kompatibilitas saat memperbarui versi Node.
+Project ini memakai SQLite bawaan Node.js. Karena itu Node.js 18 dan 20 tidak bisa menjalankannya. Modul SQLite bawaan tersebut masih berstatus eksperimen di Node.js 22.
 
-## Menjalankan di komputer sendiri
+## Menjalankan di komputer
+
+Pastikan Node.js sudah terpasang, lalu jalankan perintah ini dari folder project:
 
 ```bash
 npm run setup
 npm start
 ```
 
-Perintah setup membuat file `.env` dan menampilkan API key untuk membuka dashboard. Simpan key itu, buka [http://127.0.0.1:3000](http://127.0.0.1:3000), lalu tempel key pada halaman.
+Setup akan membuat file pengaturan `.env` dan menampilkan **API key RapiQR (kode akses)**. Simpan kode itu, buka [http://127.0.0.1:3000](http://127.0.0.1:3000), lalu masukkan kode tersebut.
 
-Database tersimpan di `data/rapiqr.sqlite`. File `.env` dan database lokal tidak ikut diunggah ke GitHub.
+Kode akses RapiQR dipakai untuk membuka halaman pengelolaan dan menggunakan API RapiQR. Kode akses dari layanan pembayaran berbeda; simpan di pengaturan server dan jangan unggah ke GitHub.
 
-## Menghubungkan provider
+Data transaksi disimpan di `data/rapiqr.sqlite`. File `.env` dan database lokal tidak ikut diunggah ke GitHub.
 
-Buat adapter di `src/providers/`, lalu isi nama file adapter di `.env`. Contohnya, untuk file `src/providers/nama-adapter.js`:
+## Menghubungkan layanan pembayaran
+
+RapiQR belum menyertakan sambungan ke layanan pembayaran. Agar bisa menerima pembayaran, developer perlu menambahkan kode penghubung di folder `src/providers/`, lalu memilihnya di file pengaturan `.env`. Contoh:
 
 ```env
-PAYMENT_PROVIDER=nama-adapter
+PAYMENT_PROVIDER=nama-integrasi
 ```
 
-Adapter harus membuat transaksi melalui API provider. Untuk menerima perubahan status, adapter bisa memverifikasi webhook, menjalankan rekonsiliasi berkala, atau memakai keduanya. Kredensial provider hanya disimpan di server. Langkah dan bentuk adapter dijelaskan di [panduan adapter](docs/provider-adapter.md).
+Bagian ini memang perlu dikerjakan developer. Cara menyambungkannya berbeda untuk setiap layanan pembayaran.
 
-Setelah `.env` diubah, mulai ulang aplikasi. Status `ready: true` pada health endpoint berarti adapter berhasil dimuat. Kalau belum ada adapter, endpoint pembuatan transaksi akan menjawab `503 provider_not_configured`.
+Setelah memilih layanan pembayaran, masukkan API key atau token akses yang diberikan layanan tersebut ke pengaturan server. Kode ini rahasia. Jangan masukkan ke halaman website atau unggah ke GitHub.
+
+Kode penghubung itu bertugas membuat transaksi dan memberi tahu RapiQR saat pembayaran berubah status. Layanan pembayaran bisa mengirim kabar otomatis (webhook), atau kode penghubung memeriksa status secara berkala (polling). Penjelasan untuk developer tersedia di [panduan integrasi](docs/provider-adapter.md).
+
+Setelah mengubah `.env`, mulai ulang aplikasi. Buka `http://alamat-server:PORT/api/v1/health` untuk melihat status. `ready: true` berarti kode penghubung berhasil dimuat. Jika belum ada kode penghubung, RapiQR belum bisa membuat pembayaran.
 
 ## API
 
-Endpoint transaksi memerlukan API key berikut:
+Untuk memakai API transaksi, kirim kode akses RapiQR pada bagian `Authorization` seperti ini:
 
 ```http
 Authorization: Bearer <RAPIQR_API_KEY>
@@ -62,6 +68,8 @@ Content-Type: application/json
 POST /api/v1/payments
 ```
 
+Contoh isi permintaan:
+
 ```json
 {
   "merchant_reference": "ORD-2026-001",
@@ -72,7 +80,9 @@ POST /api/v1/payments
 }
 ```
 
-Gunakan `merchant_reference` yang unik untuk setiap transaksi. Jika referensi dan nominal yang sama dikirim lagi, gateway mengembalikan transaksi yang sudah ada. Jika referensinya sama tetapi nominalnya berbeda, gateway menjawab `409 Conflict`.
+`merchant_reference` adalah nomor pesanan dari website toko. `amount` diisi dengan nominal dalam rupiah, misalnya `50000` untuk Rp50.000.
+
+Gunakan nomor pesanan yang berbeda untuk setiap transaksi. Jika nomor dan nominal yang sama dikirim lagi, RapiQR memakai transaksi yang sudah ada. Jika nomornya sama tetapi nominalnya berbeda, RapiQR akan menolak permintaan tersebut.
 
 ### Melihat transaksi
 
@@ -87,46 +97,48 @@ GET /api/v1/payments?limit=25
 POST /api/v1/payments/<payment_id>/cancel
 ```
 
-### Memeriksa layanan
+### Memeriksa status aplikasi
 
 ```http
 GET /api/v1/health
 ```
 
-`ok` berarti server merespons. `ready` berarti adapter provider sudah aktif.
+`ok: true` berarti aplikasi merespons. `ready: true` berarti integrasi layanan pembayaran sudah aktif.
 
-## Mengirim webhook ke aplikasi merchant
+## Pemberitahuan ke website toko
 
-Isi `WEBHOOK_URL` dan `WEBHOOK_SECRET` di `.env`:
+Jika website toko perlu menerima kabar saat status transaksi berubah, isi `WEBHOOK_URL` dan `WEBHOOK_SECRET` di `.env`:
 
 ```env
 WEBHOOK_URL=https://merchant.example/webhooks/rapiqr
 WEBHOOK_SECRET=ganti-dengan-rahasia-acak-minimal-32-karakter
 ```
 
-Gateway menyimpan event sebelum mengirimnya. Setiap request menyertakan ID event dan tanda tangan HMAC-SHA256. Jika server merchant gagal menerima webhook, gateway akan mencoba mengirim ulang hingga lima kali.
+RapiQR akan menambahkan tanda khusus pada setiap pesan agar website toko bisa memastikan kabar itu memang dikirim oleh RapiQR. Jika pesan gagal terkirim, RapiQR akan mencoba lagi hingga lima kali.
 
 ## Menjalankan di server
 
-RapiQR Gateway bisa dijalankan di VPS, cPanel, atau Pterodactyl selama tersedia Node.js 22.13+, proses Node yang terus berjalan, dan folder `data/` yang tetap tersimpan. Untuk Pterodactyl, pilih egg Node.js 22.x atau yang lebih baru.
+Kamu bisa memasang aplikasi di VPS, cPanel, atau Pterodactyl. Pastikan server menyediakan Node.js 22.13 atau lebih baru, aplikasi bisa terus berjalan, dan folder `data/` tetap tersimpan saat aplikasi dimulai ulang. Jika memakai Pterodactyl, pilih Node.js 22.x atau yang lebih baru.
 
-Di `.env`, atur `NODE_ENV=production`, `PUBLIC_ORIGIN` dengan alamat HTTPS, port yang diberikan hosting, dan `DATABASE_PATH=./data/rapiqr.sqlite`. Jika aplikasi berada di belakang reverse proxy pada server yang sama, `HOST=127.0.0.1` bisa digunakan. Ikuti panduan [deployment](docs/deployment.md) untuk pengaturan VPS, cPanel, Pterodactyl, Docker Compose, dan PM2.
+Di `.env`, atur `NODE_ENV=production`, alamat website HTTPS pada `PUBLIC_ORIGIN`, port yang diberikan layanan hosting, dan lokasi database pada `DATABASE_PATH=./data/rapiqr.sqlite`. Jika server menggunakan reverse proxy, atur `HOST=127.0.0.1`.
+
+Langkah pemasangan untuk [VPS, cPanel, Pterodactyl, Docker Compose, dan PM2](docs/deployment.md) tersedia di panduan pemasangan.
 
 > [!CAUTION]
-> **Perhatikan jenis hosting dan penyimpanan**
+> **Pilih hosting yang menyimpan data**
 >
-> Aplikasi ini perlu tetap berjalan dan menyimpan database di `data/rapiqr.sqlite`. Hindari memasang versi ini apa adanya pada hosting serverless gratis seperti Render Free, Vercel Functions, atau Netlify Functions. Proses bisa dihentikan atau file lokalnya tidak bertahan setelah restart, sehingga transaksi dan webhook yang belum terkirim dapat hilang.
+> Aplikasi ini perlu terus berjalan dan menyimpan data transaksi di `data/rapiqr.sqlite`. Jangan pasang versi ini apa adanya di hosting serverless gratis seperti Render Free, Vercel Functions, atau Netlify Functions. Layanan seperti ini bisa menghentikan aplikasi atau menghapus file saat dimulai ulang. Transaksi dan kabar yang belum terkirim bisa hilang.
 >
-> Kalau adapter yang kamu pasang menyimpan file sesi—misalnya `.GOPAY_SESI_JANGAN_DIHAPUS.json`—pastikan file itu juga berada di penyimpanan permanen. RapiQR sendiri tidak membuat sesi GoPay atau meminta OTP.
+> Kalau integrasi yang kamu pasang menyimpan file sesi—misalnya `.GOPAY_SESI_JANGAN_DIHAPUS.json`—pastikan file itu juga disimpan secara permanen. RapiQR sendiri tidak membuat sesi GoPay atau meminta OTP.
 
 > [!WARNING]
-> **Soal QRIS, provider, dan tanggung jawab penggunaan**
+> **Tentang QRIS dan risiko penggunaan**
 >
-> RapiQR Gateway adalah project independen dan tidak berafiliasi dengan PT GoTo Gojek Tokopedia Tbk, GoPay, atau provider pembayaran lainnya. Gateway ini hanya menyediakan perangkat lunak; keputusan untuk menerima, membatasi, atau memblokir QRIS dan akun tetap ada pada merchant atau penyedia terkait.
+> RapiQR Gateway tidak berafiliasi dengan PT GoTo Gojek Tokopedia Tbk, GoPay, atau layanan pembayaran lainnya. RapiQR hanya menyediakan source code. Merchant (toko) atau penyedia pembayaran yang menentukan apakah QRIS dan akun bisa digunakan, dibatasi, atau diblokir.
 >
-> Jika merchant atau penyedia pembayaran memblokir QRIS atau akun yang kamu gunakan, saya sebagai pembuat project ini tidak bertanggung jawab atas keputusan tersebut maupun dampaknya. Gunakan API resmi dan ikuti ketentuan provider. Jika adapter melakukan polling, patuhi batas request agar akunmu tidak terkena pembatasan.
+> Jika toko atau penyedia pembayaran memblokir QRIS atau akun yang kamu gunakan, saya sebagai pembuat project ini tidak bertanggung jawab atas keputusan atau dampaknya. Gunakan API resmi dan ikuti aturan penyedia pembayaran. Jika kode penghubung memeriksa status transaksi secara berkala, jangan melebihi batas permintaan yang ditetapkan penyedia.
 >
-> Database disimpan di server tempat gateway dijalankan. Data yang diperlukan untuk transaksi juga akan diteruskan ke provider dan URL webhook merchant yang kamu atur.
+> Data transaksi tersimpan di server tempat RapiQR dijalankan. Data yang dibutuhkan untuk memproses pembayaran juga dikirim ke layanan pembayaran dan website toko yang kamu atur.
 
 ## Pemeriksaan
 
