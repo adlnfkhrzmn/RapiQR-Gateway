@@ -1,0 +1,18 @@
+{
+  "name": "rapiqr-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A self-hosted, provider-agnostic QRIS payment gateway starter.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.js",
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "check": "node --check src/config.js && node --check src/store.js && node --check src/security.js && node --check src/webhook-worker.js && node --check src/server.js && node --check src/providers/sandbox.js && node --check public/dashboard.js && node --check public/checkout.js && node --check scripts/setup.js",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f7f4" />
+    <title>Checkout · RapiQR Gateway</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/checkout.js" defer></script>
+  </head>
+  <body class="checkout-body">
+    <div class="checkout-shell">
+      <header class="topbar checkout-topbar">
+        <a class="brand" href="/" aria-label="RapiQR Gateway beranda">
+          <span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span class="brand-word">rapi<span>qr</span></span><span class="brand-divider"></span><span class="brand-product">GATEWAY</span>
+        </a>
+        <span class="mode-pill"><i></i> Checkout sandbox</span>
+      </header>
+      <main class="checkout-main">
+        <section class="checkout-card card" id="checkout-card" aria-live="polite">
+          <div class="checkout-loader" id="checkout-loader"><span class="spinner"></span><p>Memuat detail order…</p></div>
+          <div id="checkout-content" hidden>
+            <p class="eyebrow"><span></span> DETAIL PEMBAYARAN</p>
+            <div class="checkout-amount" id="checkout-amount">Rp0</div>
+            <p class="checkout-description" id="checkout-description">Pembayaran RapiQR</p>
+            <dl class="checkout-details">
+              <div><dt>Referensi order</dt><dd id="checkout-reference">—</dd></div>
+              <div><dt>Status</dt><dd><span class="status-pill" id="checkout-status">Menunggu</span></dd></div>
+              <div><dt>Batas waktu</dt><dd id="checkout-expiry">—</dd></div>
+            </dl>
+            <div class="sandbox-explainer"><span aria-hidden="true">i</span><p>Provider sandbox aktif. Tombol di bawah hanya mengubah status simulasi dan tidak memindahkan uang.</p></div>
+            <button class="button primary full-button" id="settle-button" type="button">Simulasikan pembayaran berhasil <span aria-hidden="true">→</span></button>
+            <p class="form-message" id="checkout-message" role="status"></p>
+            <a class="back-link" href="/">Kembali ke dashboard</a>
+          </div>
+          <div class="checkout-error" id="checkout-error" hidden>
+            <div class="error-mark" aria-hidden="true">!</div><h1>Order tidak tersedia</h1><p id="checkout-error-message">Periksa kembali tautan pembayaran.</p><a class="button secondary" href="/">Ke dashboard</a>
+          </div>
+        </section>
+        <p class="checkout-footer">RapiQR Gateway <span>·</span> Pembayaran sandbox</p>
+      </main>
+    </div>
+  </body>
+</html>
