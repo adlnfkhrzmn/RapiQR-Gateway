@@ -16,15 +16,27 @@ export function loadConfig() {
   const configuredDbPath = process.env.DATABASE_PATH || "./data/rapiqr.sqlite";
   const databasePath = configuredDbPath === ":memory:" ? ":memory:" : resolve(projectRoot, configuredDbPath);
   const nodeEnv = process.env.NODE_ENV || "development";
+  const publicOriginValue = process.env.PUBLIC_ORIGIN || `http://${host}:${port}`;
+  let publicOrigin;
+  try {
+    const parsedOrigin = new URL(publicOriginValue);
+    if (!(["http:", "https:"].includes(parsedOrigin.protocol)) || parsedOrigin.username || parsedOrigin.password || parsedOrigin.pathname !== "/" || parsedOrigin.search || parsedOrigin.hash) {
+      throw new Error("invalid_origin");
+    }
+    if (nodeEnv === "production" && parsedOrigin.protocol !== "https:") throw new Error("production_requires_https");
+    publicOrigin = parsedOrigin.origin;
+  } catch {
+    throw new Error("PUBLIC_ORIGIN harus berupa origin HTTP/HTTPS tanpa path; production wajib memakai HTTPS.");
+  }
   const config = {
     nodeEnv,
     host,
     port,
-    providerName: process.env.PAYMENT_PROVIDER || "sandbox",
+    providerName: process.env.PAYMENT_PROVIDER?.trim() || null,
     apiKey: process.env.RAPIQR_API_KEY || "",
     webhookSecret: process.env.WEBHOOK_SECRET || "",
     webhookUrl: process.env.WEBHOOK_URL || "",
-    publicOrigin: (process.env.PUBLIC_ORIGIN || `http://${host}:${port}`).replace(/\/$/, ""),
+    publicOrigin,
     databasePath,
     maxAmount: 10_000_000,
     defaultExpirySeconds: 900,
@@ -36,8 +48,8 @@ export function loadConfig() {
   if (config.apiKey.length < 32) {
     throw new Error("RAPIQR_API_KEY belum diatur atau terlalu pendek. Jalankan npm run setup.");
   }
-  if (nodeEnv === "production" && config.providerName === "sandbox") {
-    throw new Error("Provider sandbox tidak boleh dijalankan saat NODE_ENV=production.");
+  if (config.providerName && !/^[a-z0-9-]+$/.test(config.providerName)) {
+    throw new Error("PAYMENT_PROVIDER hanya boleh berisi huruf kecil, angka, atau tanda hubung.");
   }
   if (config.webhookUrl) {
     let webhookUrl;

@@ -1,0 +1,11 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+node_modules
+npm-debug.log*
+test
+docs
+README.md

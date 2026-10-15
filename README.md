@@ -1,45 +1,60 @@
 # RapiQR Gateway
 
-RapiQR Gateway adalah source code gateway pembayaran yang bisa dikembangkan dengan provider pilihanmu. Order, status pembayaran, masa berlaku, dan notifikasi webhook dikelola melalui satu API.
+RapiQR Gateway menyediakan API dan dashboard untuk mengelola order pembayaran. Kode inti menangani referensi order, nominal, masa berlaku, status, penyimpanan transaksi, dan webhook ke aplikasi merchant. Integrasi pembayaran dijalankan melalui adapter server-side yang kamu pilih dan buat sendiri.
 
-Adapter sandbox tersedia agar alur order sampai pembayaran berhasil bisa dicoba dari dashboard. Adapter ini hanya simulasi lokal dan tidak memindahkan uang. Untuk transaksi nyata, tambahkan adapter server-side yang menggunakan API resmi provider dan kredensial merchant milikmu.
+Tidak ada provider pembayaran bawaan. Setelah dijalankan, dashboard dan API status dapat digunakan untuk memeriksa layanan. Pembuatan pembayaran baru aktif setelah adapter ditambahkan dan `PAYMENT_PROVIDER` diatur.
+
+Repository ini tidak langsung menerima uang. Transaksi nyata membutuhkan adapter yang sesuai, akun merchant, dan kredensial dari penyedia pilihanmu.
+
+Source code berlisensi MIT dan dapat digunakan tanpa biaya lisensi. Biaya server dan ketentuan penyedia pembayaran mengikuti layanan yang dipilih operator.
 
 ## Fitur
 
 - API untuk membuat, melihat, dan membatalkan order.
 - Idempotensi berdasarkan `merchant_reference` untuk mencegah order ganda.
 - Status pembayaran `creating`, `pending`, `paid`, `expired`, `cancelled`, dan `failed`.
-- Database SQLite lokal untuk menyimpan order dan riwayat event.
-- Halaman checkout sandbox untuk menyimulasikan pembayaran.
-- Callback webhook bertanda tangan HMAC-SHA256, antrean persisten, dan retry otomatis.
-- Adapter provider yang dapat ditambahkan tanpa mengubah alur API inti.
-- API key melalui header Authorization; tidak menerima kunci melalui URL.
-- Dashboard responsif untuk membuat order dan memantau transaksi.
+- SQLite untuk order, riwayat status, dan antrean webhook merchant.
+- Webhook merchant bertanda tangan HMAC-SHA256 dengan retry persisten.
+- Kontrak adapter untuk menghubungkan penyedia pembayaran pilihanmu.
+- Dashboard responsif untuk melihat transaksi dan aktivitas.
+- API key untuk endpoint pengelolaan order.
 
-## Menjalankan secara lokal
+## Persyaratan
 
-Gunakan Node.js 22.13 atau lebih baru.
+- Node.js 22.13 atau lebih baru.
+- Adapter untuk penyedia pembayaran yang akan digunakan.
+- Penyimpanan persisten untuk direktori `data/`.
+
+Project ini memakai modul `node:sqlite` bawaan Node.js, sehingga Node.js 18.x dan 20.x belum memenuhi persyaratan runtime.
+
+API `node:sqlite` masih berstatus experimental pada Node.js 22.x. Gunakan versi Node.js yang memenuhi minimum project dan tinjau perubahan runtime saat memperbarui versi.
+
+## Menjalankan
 
 ```bash
 npm run setup
-npm run dev
-```
-
-Perintah setup membuat `.env` dengan API key dan webhook secret acak. Simpan API key yang tampil di terminal, buka [http://127.0.0.1:3000](http://127.0.0.1:3000), lalu tempel API key untuk menghubungkan dashboard.
-
-Buat order dari dashboard dan buka tautan checkout di daftar transaksi. Di halaman checkout, pilih **Simulasikan pembayaran berhasil**. Status order berubah menjadi `paid` dan event tersimpan di database lokal.
-
-Untuk menjalankan tanpa mode pantau perubahan file:
-
-```bash
 npm start
 ```
 
-Database tersimpan di `data/rapiqr.sqlite`. File `.env` dan database lokal diabaikan oleh Git.
+Setup membuat file `.env` dan menampilkan API key dashboard. Simpan key tersebut, buka `http://127.0.0.1:3000`, lalu masukkan API key. Secara default belum ada adapter yang aktif.
+
+Database dibuat di `data/rapiqr.sqlite`. File `.env` dan database lokal tidak masuk Git.
+
+## Integrasi provider
+
+Tambahkan adapter di `src/providers/<nama>.js`, lalu tetapkan nama yang sama di `.env`:
+
+```env
+PAYMENT_PROVIDER=nama-adapter
+```
+
+Adapter perlu menyediakan `createPayment()` untuk membuat transaksi melalui API provider. Untuk memperbarui status, adapter dapat memakai webhook melalui `normalizeWebhook()`, proses rekonsiliasi melalui `start()`, atau keduanya. Kredensial provider hanya disimpan di environment server. Lihat [panduan adapter](docs/provider-adapter.md).
+
+Setelah perubahan `.env`, mulai ulang aplikasi. Health endpoint menunjukkan `ready: true` jika adapter berhasil dimuat. Tanpa adapter, pembuatan pembayaran mengembalikan `503 provider_not_configured`.
 
 ## API
 
-Semua endpoint pengelolaan order memerlukan header:
+Endpoint pengelolaan transaksi menggunakan header:
 
 ```http
 Authorization: Bearer <RAPIQR_API_KEY>
@@ -62,16 +77,16 @@ POST /api/v1/payments
 }
 ```
 
-`merchant_reference` harus unik. Mengirim referensi dan nominal yang sama akan mengembalikan order yang sudah dibuat. Menggunakan referensi sama dengan nominal berbeda menghasilkan `409 Conflict`.
+`merchant_reference` harus unik. Referensi dan nominal yang sama mengembalikan order yang sudah dibuat; referensi sama dengan nominal berbeda menghasilkan `409 Conflict`.
 
-### Melihat pembayaran
+### Membaca transaksi
 
 ```http
 GET /api/v1/payments/<payment_id>
 GET /api/v1/payments?limit=25
 ```
 
-### Membatalkan pembayaran
+### Membatalkan transaksi
 
 ```http
 POST /api/v1/payments/<payment_id>/cancel
@@ -83,43 +98,45 @@ POST /api/v1/payments/<payment_id>/cancel
 GET /api/v1/health
 ```
 
-Checkout membaca informasi minimum dari `GET /api/public/payments/<payment_id>`. Endpoint ini tidak mengembalikan API key atau data merchant sensitif.
+`ok` menunjukkan proses HTTP berjalan. `ready` menunjukkan adapter provider berhasil dimuat dan pembuatan pembayaran dapat diproses.
 
 ## Webhook merchant
 
-Atur URL callback di `.env`:
+Isi `WEBHOOK_URL` dan `WEBHOOK_SECRET` di `.env` untuk mengirim perubahan status ke aplikasi merchant:
 
 ```env
 WEBHOOK_URL=https://merchant.example/webhooks/rapiqr
 WEBHOOK_SECRET=ganti-dengan-rahasia-acak-minimal-32-karakter
 ```
 
-Setiap perubahan status membuat event yang disimpan sebelum dikirim. Callback dikirim sebagai JSON dengan header `X-RapiQR-Event-Id` dan `X-RapiQR-Signature` berformat `t=<unix-time>,v1=<hmac>`. Signature dihitung dari `timestamp + "." + raw_body` menggunakan HMAC-SHA256. Endpoint yang gagal menerima callback akan dicoba ulang dengan jeda bertahap sampai lima percobaan.
+Event disimpan sebelum dikirim. Request membawa `X-RapiQR-Event-Id` dan `X-RapiQR-Signature` berformat `t=<unix-time>,v1=<hmac>`. Signature dihitung dari `timestamp + "." + raw_body` menggunakan HMAC-SHA256. Pengiriman gagal dicoba ulang hingga lima kali dengan jeda bertahap.
 
-## Menambahkan provider
+## Deployment
 
-1. Tambahkan adapter di `src/providers/<nama>.js`.
-2. Implementasikan `createPayment(payment, context)` untuk membuat transaksi melalui API provider.
-3. Implementasikan `normalizeWebhook({ rawBody, headers, config })` untuk memverifikasi signature provider dan mengembalikan reference serta status transaksi.
-4. Simpan kredensial provider di environment variable server, jangan di frontend atau Git.
-5. Atur `PAYMENT_PROVIDER=<nama>` dan uji adapter menggunakan lingkungan uji resmi provider.
+Gateway dapat dijalankan pada VPS, cPanel, atau Pterodactyl jika tersedia Node.js 22.13+, proses Node.js yang berjalan terus, dan direktori `data/` yang dapat ditulis serta disimpan permanen. Pada Pterodactyl, pilih runtime Node.js 22.x atau lebih baru. Di cPanel, pastikan versi Node.js aplikasi memenuhi persyaratan tersebut.
 
-Kontrak adapter dan contoh implementasi ada di [docs/provider-adapter.md](docs/provider-adapter.md). RapiQR Gateway tidak menyertakan kredensial atau endpoint privat milik penyedia pembayaran.
+Untuk deployment langsung, atur `.env` dengan `NODE_ENV=production`, `HOST=0.0.0.0` jika panel mengharuskannya, port yang disediakan host, `PUBLIC_ORIGIN` HTTPS, dan `DATABASE_PATH=./data/rapiqr.sqlite`. Batasi akses dashboard/API dengan TLS, firewall, dan pengelolaan API key yang benar. Di belakang reverse proxy pada host yang sama, `HOST=127.0.0.1` dapat digunakan.
 
-## Pemeriksaan lokal
+Contoh konfigurasi tersedia untuk [Docker Compose](docs/deployment.md#docker-compose) dan [PM2](docs/deployment.md#pm2). Keduanya menggunakan satu proses aplikasi dan menyimpan database di lokasi persisten.
+
+> [!CAUTION]
+> 🚨 **PERSYARATAN DEPLOYMENT (VPS / cPanel / Pterodactyl Panel)**
+> Gateway ini ditujukan untuk host Node.js yang berjalan terus dan memiliki penyimpanan persisten. **DILARANG MENGGUNAKAN HOSTING SERVERLESS GRATISAN UNTUK VERSI INI**, termasuk Render Free, Vercel Functions, atau Netlify Functions, kecuali arsitekturnya diubah dan storage persisten disiapkan. Gateway menyimpan order dan antrean webhook di `data/rapiqr.sqlite`; jika file tersebut hilang, data transaksi lokal dan webhook tertunda juga hilang. Core RapiQR tidak membuat sesi GoPay atau meminta OTP GoPay. Jika adapter GoPay pilihan operator membuat file sesi seperti `.GOPAY_SESI_JANGAN_DIHAPUS.json`, file itu juga perlu disimpan pada storage persisten.
+
+> [!WARNING]
+> ⚠️ **DISCLAIMER PROYEK TIDAK RESMI**
+> RapiQR Gateway tidak berafiliasi dengan PT GoTo Gojek Tokopedia Tbk, GoPay, atau penyedia pembayaran lain. Project ini tidak menyertakan API privat, kredensial, maupun adapter provider. Gunakan API resmi dan patuhi ketentuan penyedia yang kamu integrasikan. Adapter yang melakukan polling harus memakai interval dan batas request yang diizinkan provider; polling terlalu agresif dapat memicu pembatasan akun. Data inti disimpan pada server tempat gateway dijalankan. Data yang diperlukan tetap dikirim ke provider dan URL webhook merchant yang kamu atur. Keamanan server, integrasi, dan konfigurasi menjadi tanggung jawab operator; risiko penggunaan ditanggung operator.
+
+## Pemeriksaan
 
 ```bash
 npm run check
 npm test
 ```
 
-## Batas penggunaan
-
-Provider sandbox bawaan hanya untuk menguji alur perangkat lunak. Status `paid` dari sandbox tidak menunjukkan dana diterima. Jangan gunakan checkout sandbox untuk menagih pelanggan. Penerimaan pembayaran nyata memerlukan adapter yang sesuai, akun merchant, kredensial produksi, serta pengujian dan konfigurasi dari penyedia pembayaran.
-
 ## Lisensi
 
-MIT. Source code boleh digunakan, diubah, dan dibagikan kembali dengan menyertakan pemberitahuan lisensi.
+MIT. Source code dapat digunakan, diubah, dan dibagikan kembali dengan menyertakan pemberitahuan lisensi.
 
 ## Tentang
 

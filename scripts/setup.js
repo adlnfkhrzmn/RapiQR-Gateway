@@ -15,7 +15,7 @@ const contents = [
   "NODE_ENV=development",
   "HOST=127.0.0.1",
   "PORT=3000",
-  "PAYMENT_PROVIDER=sandbox",
+  "PAYMENT_PROVIDER=",
   `RAPIQR_API_KEY=${apiKey}`,
   `WEBHOOK_SECRET=${webhookSecret}`,
   "WEBHOOK_URL=",
@@ -28,4 +28,4 @@ writeFileSync(envPath, contents, { flag: "wx", mode: 0o600 });
 console.log("Konfigurasi lokal berhasil dibuat di .env.");
 console.log("Simpan API key ini untuk membuka dashboard:");
 console.log(apiKey);
-console.log("Jalankan aplikasi dengan: npm run dev");
+console.log("Tambahkan adapter provider pilihanmu, lalu jalankan aplikasi dengan: npm run dev");

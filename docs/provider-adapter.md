@@ -1,19 +1,19 @@
 # Membuat adapter provider
 
-RapiQR Gateway memanggil adapter dari sisi server. Adapter menangani komunikasi dengan penyedia pembayaran dan menormalkan notifikasi ke status internal. Jangan menaruh server key, access token, atau rahasia provider di file `public/`.
+Adapter berjalan di sisi server. Adapter menghubungkan alur pembayaran RapiQR ke API resmi penyedia yang kamu pilih. Jangan menaruh server key, access token, atau secret provider di folder `public/` atau di repository.
 
-## 1. Buat modul
+## Kontrak adapter
 
-Tambahkan file, misalnya `src/providers/acme.js`:
+Buat file `src/providers/<nama>.js`:
 
 ```js
 export default {
-  name: "acme",
+  name: "nama",
 
   async createPayment(payment, { publicOrigin, config }) {
-    // Kirim order_id, amount, currency, dan expiry ke API resmi provider.
-    // Gunakan payment.merchantReference sebagai idempotency key bila didukung.
-    // Ambil kredensial dari process.env atau config rahasia server.
+    // Buat transaksi melalui API resmi provider.
+    // Kirim merchantReference, amount, currency, description, dan expiresAt.
+    // Gunakan merchantReference sebagai idempotency key jika didukung.
     return {
       reference: "provider-transaction-id",
       checkoutUrl: "https://checkout.provider.example/payment/transaction-id",
@@ -21,46 +21,58 @@ export default {
   },
 
   async normalizeWebhook({ rawBody, headers, config }) {
-    // Verifikasi signature provider atas rawBody sebelum mempercayai event.
-    // Kembalikan reference transaksi provider dan status provider.
+    // Verifikasi signature sesuai dokumentasi resmi provider.
+    // Parsing dan validasi event hanya setelah signature benar.
     return {
       reference: "provider-transaction-id",
-      status: "settlement", // paid, settlement, expired, cancelled, denied
+      status: "settlement",
+      reason: null,
+    };
+  },
+
+  async start({ store, config, logger }) {
+    // Opsional: mulai worker rekonsiliasi/polling yang mematuhi rate limit provider.
+    // Baca order tertunda dengan store.listPendingPayments("nama").
+    // Untuk status final yang sudah diverifikasi, panggil store.transitionPayment(id, status).
+    // Hindari menjalankan polling bertumpuk dan simpan jeda yang sesuai kebijakan provider.
+    return () => {
+      // Hentikan timer/worker saat proses menerima SIGINT atau SIGTERM.
     };
   },
 };
 ```
 
-Implementasikan verifikasi signature menggunakan aturan resmi provider, constant-time comparison, dan raw body yang belum diubah. Jangan memakai nominal dari browser sebagai bukti pembayaran. Notifikasi provider yang sudah diverifikasi menjadi sumber perubahan status.
+`createPayment()` harus mengembalikan `reference` yang stabil dari provider dan `checkoutUrl` HTTPS. Gateway menyimpan reference tersebut untuk mencocokkan notifikasi provider.
 
-## 2. Aktifkan adapter
+`normalizeWebhook()` bersifat opsional jika adapter memakai proses rekonsiliasi. Jika digunakan, fungsi ini harus mengembalikan reference yang sama dengan nilai yang diberikan saat transaksi dibuat dan status provider. Gateway memetakan status umum seperti `paid`, `settlement`, `expired`, `cancelled`, `failed`, dan `denied` ke status internal. Event dengan signature tidak valid harus ditolak oleh adapter.
 
-Atur `.env`:
+`start()` bersifat opsional dan dijalankan sekali saat proses gateway mulai. Fungsi ini harus memulai worker tanpa menunggu loop polling selesai, lalu segera mengembalikan fungsi cleanup untuk menghentikan timer/worker saat proses dimatikan. `store.listPendingPayments(namaProvider, limit)` hanya mengembalikan order `pending` milik adapter tersebut; `store.transitionPayment(id, status, details)` menerima status akhir `paid`, `expired`, `cancelled`, atau `failed`. Adapter wajib menyediakan paling sedikit satu cara pembaruan status: `normalizeWebhook()` atau `start()`.
+
+## Aktifkan adapter
+
+Atur nama file dan `.env` agar sama. Misalnya `src/providers/acme-pay.js`:
 
 ```env
-PAYMENT_PROVIDER=acme
-NODE_ENV=production
+PAYMENT_PROVIDER=acme-pay
+ACME_PAY_SERVER_KEY=isi-di-server-saja
 ```
 
-Kredensial yang diperlukan provider dibaca dari environment variable server. Tambahkan validasi konfigurasi provider di adapter sebelum server dibuka. Rute webhook provider akan tersedia di `POST /api/v1/providers/acme/webhook`.
+Adapter dapat membaca konfigurasi rahasia dari `process.env`. Tambahkan validasi konfigurasi agar aplikasi gagal start dengan pesan jelas jika kredensial yang diperlukan tidak tersedia. Mulai ulang aplikasi setelah konfigurasi berubah. Webhook provider akan diterima pada:
 
-## 3. Pemetaan status
+```text
+POST /api/v1/providers/acme-pay/webhook
+```
 
-RapiQR menerima status akhir berikut:
+URL tersebut harus dapat dijangkau oleh provider melalui HTTPS dan harus didaftarkan sesuai dokumentasi provider.
 
-| Status provider | Status RapiQR |
-| --- | --- |
-| `paid`, `success`, `settlement` | `paid` |
-| `expired`, `expire` | `expired` |
-| `cancelled`, `canceled`, `cancel` | `cancelled` |
-| `failed`, `deny`, `denied` | `failed` |
+## Keamanan dan operasi
 
-Transisi akhir bersifat idempotent: event yang dikirim ulang tidak mengganti transaksi yang sudah final.
-
-## Catatan operasional
-
-- Pasang TLS melalui reverse proxy saat server dapat diakses dari internet.
-- Batasi dashboard dan endpoint API dengan firewall atau lapisan autentikasi tambahan.
-- Simpan backup database dan rahasia provider di luar Git.
-- Uji notifikasi, callback, expiry, dan idempotensi di lingkungan uji provider sebelum memakai kredensial produksi.
-- Adapter sandbox bawaan hanya menyelesaikan pembayaran simulasi. Adapter provider nyata harus dibuat dan diuji oleh pemilik integrasi.
+- Verifikasi signature provider atas raw body yang belum diubah; gunakan constant-time comparison.
+- Jangan mengubah order menjadi `paid` hanya berdasarkan redirect browser atau nominal yang dikirim browser.
+- Gunakan notifikasi server-to-server yang terverifikasi sebagai dasar perubahan status.
+- Simpan kredensial di environment server dan jangan commit `.env`.
+- Gunakan idempotency key untuk menghindari transaksi ganda jika provider mendukungnya.
+- Terapkan batas request dan interval polling sesuai dokumentasi serta kebijakan provider.
+- Jalankan satu proses gateway untuk satu file SQLite. Worker rekonsiliasi tambahan harus mencegah eksekusi bertumpuk.
+- Uji adapter dengan kredensial dan lingkungan uji resmi provider sebelum memproses pembayaran produksi.
+- Backup direktori database `data/` dan rahasia provider secara terpisah.

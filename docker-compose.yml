@@ -1,0 +1,18 @@
+services:
+  rapiqr-gateway:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: ${PORT:-3000}
+      DATABASE_PATH: ./data/rapiqr.sqlite
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - rapiqr-data:/app/data
+
+volumes:
+  rapiqr-data:

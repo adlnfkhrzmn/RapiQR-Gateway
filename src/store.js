@@ -200,6 +200,15 @@ export class GatewayStore {
     return this.db.prepare("SELECT * FROM payments ORDER BY created_at DESC LIMIT ?").all(limit);
   }
 
+  listPendingPayments(providerName, limit = 100) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("Limit rekonsiliasi harus antara 1 dan 500.");
+    return this.db.prepare(`
+      SELECT * FROM payments
+      WHERE provider=? AND status='pending'
+      ORDER BY created_at ASC LIMIT ?
+    `).all(providerName, limit);
+  }
+
   listEvents(limit = 12) {
     return this.db.prepare(`
       SELECT e.id, e.type, e.created_at, p.merchant_reference

@@ -50,6 +50,10 @@
         </section>
 
         <div id="dashboard-content" hidden>
+          <section class="provider-note card" id="provider-note" hidden aria-live="polite">
+            <span class="provider-note-mark" aria-hidden="true">i</span>
+            <div><strong>Adapter pembayaran belum aktif</strong><p>Tambahkan adapter pembayaran pilihanmu dan atur PAYMENT_PROVIDER di .env untuk mengaktifkan pembuatan pembayaran.</p><a href="https://github.com/adlnfkhrzmn/RapiQR-Gateway/blob/main/docs/provider-adapter.md">Buka panduan adapter <span aria-hidden="true">↗</span></a></div>
+          </section>
           <section class="stats-grid" aria-label="Ringkasan pembayaran">
             <article class="stat-card card"><span>Total order</span><strong id="stat-total">0</strong><small>Semua status</small></article>
             <article class="stat-card card"><span>Menunggu</span><strong id="stat-pending">0</strong><small>Belum diselesaikan</small></article>

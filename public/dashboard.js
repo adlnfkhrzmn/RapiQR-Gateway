@@ -142,7 +142,9 @@ async function refreshDashboard() {
   document.querySelector("#stat-revenue").textContent = rupiah(stats.paid_amount);
   renderPayments(payments);
   renderEvents(events);
-  modeLabel.textContent = provider === "sandbox" ? "Provider sandbox aktif" : `Provider ${provider} aktif`;
+  modeLabel.textContent = provider ? `Provider ${provider} aktif` : "Adapter belum dikonfigurasi";
+  document.querySelector("#provider-note").hidden = Boolean(provider);
+  document.querySelector("#create-button").disabled = !provider;
   document.querySelector("#updated-at").textContent = `Diperbarui ${dateText(new Date().toISOString())} · database tersimpan lokal`;
 }
 

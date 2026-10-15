@@ -12,7 +12,6 @@ const publicDirectory = fileURLToPath(new URL("../public/", import.meta.url));
 const assetFiles = new Map([
   ["/assets/styles.css", ["styles.css", "text/css; charset=utf-8"]],
   ["/assets/dashboard.js", ["dashboard.js", "text/javascript; charset=utf-8"]],
-  ["/assets/checkout.js", ["checkout.js", "text/javascript; charset=utf-8"]],
 ]);
 const requestWindows = new Map();
 const RATE_LIMIT = 120;
@@ -123,20 +122,6 @@ function paymentResponse(payment, { idempotent = false } = {}) {
   return { ...publicPayment(payment), idempotent };
 }
 
-function publicCheckoutPayment(payment) {
-  return {
-    id: payment.id,
-    merchant_reference: payment.merchant_reference,
-    amount: payment.amount,
-    currency: payment.currency,
-    description: payment.description,
-    status: payment.status,
-    expires_at: payment.expires_at,
-    paid_at: payment.paid_at,
-    provider: payment.provider,
-  };
-}
-
 function normalizeProviderStatus(status) {
   const value = String(status || "").toLowerCase();
   if (["paid", "success", "successful", "settlement", "settled"].includes(value)) return "paid";
@@ -150,8 +135,11 @@ async function loadProvider(name) {
   if (!/^[a-z0-9-]+$/.test(name)) throw new Error("Nama provider hanya boleh berisi huruf kecil, angka, atau tanda hubung.");
   const providerModule = await import(new URL(`./providers/${name}.js`, import.meta.url));
   const provider = providerModule.default;
-  if (!provider || typeof provider.createPayment !== "function" || typeof provider.normalizeWebhook !== "function") {
-    throw new Error(`Provider ${name} harus menyediakan createPayment() dan normalizeWebhook().`);
+  if (!provider || typeof provider.createPayment !== "function") {
+    throw new Error(`Provider ${name} harus menyediakan createPayment().`);
+  }
+  if (typeof provider.normalizeWebhook !== "function" && typeof provider.start !== "function") {
+    throw new Error(`Provider ${name} harus menyediakan normalizeWebhook() atau start() untuk memperbarui status pembayaran.`);
   }
   return provider;
 }
@@ -179,50 +167,26 @@ async function handleRequest(request, response, context) {
   if (request.method === "GET" && pathname === "/") {
     return sendHtml(response, 200, await readFile(resolve(publicDirectory, "dashboard.html"), "utf8"), requestId);
   }
-  if (request.method === "GET" && pathname.startsWith("/checkout/")) {
-    return sendHtml(response, 200, await readFile(resolve(publicDirectory, "checkout.html"), "utf8"), requestId);
-  }
   if (request.method === "GET" && assetFiles.has(pathname)) return serveAsset(response, pathname, requestId);
 
   if (request.method === "GET" && pathname === "/api/v1/health") {
     return sendJson(response, 200, {
       ok: true,
       service: "rapiqr-gateway",
-      provider: provider.name,
-      mode: provider.name === "sandbox" ? "sandbox" : "custom-provider",
+      ready: Boolean(provider),
+      provider: provider?.name || null,
+      mode: provider ? "provider-configured" : "provider-unconfigured",
       time: new Date().toISOString(),
     }, requestId);
-  }
-
-  if (request.method === "GET" && pathname.startsWith("/api/public/payments/")) {
-    store.expireDuePayments();
-    const id = pathname.slice("/api/public/payments/".length);
-    const payment = store.getPayment(id);
-    if (!payment) throw new HttpError(404, "Pembayaran tidak ditemukan.", "payment_not_found");
-    return sendJson(response, 200, { data: publicCheckoutPayment(payment) }, requestId);
-  }
-
-  if (request.method === "POST" && pathname.startsWith("/api/sandbox/payments/") && pathname.endsWith("/settle")) {
-    if (provider.name !== "sandbox" || config.nodeEnv === "production") {
-      throw new HttpError(404, "Rute sandbox tidak tersedia.", "not_found");
-    }
-    if (!allowRequest(request)) throw new HttpError(429, "Terlalu banyak request. Coba lagi sebentar.", "rate_limited");
-    const id = pathname.slice("/api/sandbox/payments/".length, -"/settle".length);
-    const payment = store.getPayment(id);
-    if (!payment) throw new HttpError(404, "Pembayaran tidak ditemukan.", "payment_not_found");
-    if (payment.provider !== "sandbox") throw new HttpError(409, "Pembayaran ini bukan milik provider sandbox.", "provider_mismatch");
-    const result = store.transitionPayment(id, "paid");
-    if (!result.changed && result.payment.status !== "paid") {
-      throw new HttpError(409, `Pembayaran berstatus ${result.payment.status} dan tidak dapat diselesaikan.`, "invalid_transition");
-    }
-    return sendJson(response, 200, { data: publicPayment(result.payment), changed: result.changed }, requestId);
   }
 
   const providerWebhookMatch = /^\/api\/v1\/providers\/([a-z0-9-]+)\/webhook$/.exec(pathname);
   if (request.method === "POST" && providerWebhookMatch) {
     if (!allowRequest(request)) throw new HttpError(429, "Terlalu banyak request.", "rate_limited");
     const providerName = providerWebhookMatch[1];
+    if (!provider) throw new HttpError(503, "Adapter provider belum dikonfigurasi.", "provider_not_configured");
     if (providerName !== provider.name) throw new HttpError(404, "Provider tidak aktif.", "provider_not_found");
+    if (typeof provider.normalizeWebhook !== "function") throw new HttpError(501, "Adapter provider ini tidak menerima webhook.", "webhook_not_supported");
     const { rawBody } = await readJson(request);
     let normalized;
     try {
@@ -247,7 +211,7 @@ async function handleRequest(request, response, context) {
 
     if (request.method === "GET" && pathname === "/api/v1/dashboard") {
       store.expireDuePayments();
-      return sendJson(response, 200, { data: { ...store.dashboard(), provider: provider.name }, webhooks: store.webhookSummary() }, requestId);
+      return sendJson(response, 200, { data: { ...store.dashboard(), provider: provider?.name || null }, webhooks: store.webhookSummary() }, requestId);
     }
 
     if (request.method === "GET" && pathname === "/api/v1/payments") {
@@ -259,6 +223,7 @@ async function handleRequest(request, response, context) {
     }
 
     if (request.method === "POST" && pathname === "/api/v1/payments") {
+      if (!provider) throw new HttpError(503, "Tambahkan dan aktifkan adapter provider sebelum membuat pembayaran.", "provider_not_configured");
       const { body } = await readJson(request);
       const input = validatePaymentInput(body, config);
       const existing = store.getByMerchantReference(input.merchant_reference);
@@ -295,7 +260,10 @@ async function handleRequest(request, response, context) {
           expiresAt,
         }, { publicOrigin: config.publicOrigin, config });
         const checkoutUrl = new URL(providerResult.checkoutUrl);
-        if (!(["http:", "https:"].includes(checkoutUrl.protocol))) throw new Error("Provider mengembalikan checkout URL yang tidak aman.");
+        const localHttpCheckout = config.nodeEnv !== "production"
+          && checkoutUrl.protocol === "http:"
+          && ["127.0.0.1", "localhost"].includes(checkoutUrl.hostname);
+        if (checkoutUrl.protocol !== "https:" && !localHttpCheckout) throw new Error("Provider harus mengembalikan checkout URL HTTPS.");
         const payment = store.activatePayment(id, {
           reference: providerResult.reference,
           checkoutUrl: checkoutUrl.toString(),
@@ -353,21 +321,41 @@ export function createGatewayServer({ config, store, provider, logger = console 
 
 export async function start() {
   const config = loadConfig();
-  const provider = await loadProvider(config.providerName);
+  const provider = config.providerName ? await loadProvider(config.providerName) : null;
   const store = new GatewayStore(config.databasePath, config.webhookUrl);
   const server = createGatewayServer({ config, store, provider });
   const webhookWorker = createWebhookWorker({ store, url: config.webhookUrl, secret: config.webhookSecret });
+  let stopProvider = null;
+  try {
+    const providerRuntime = await provider?.start?.({ store, config, logger: console });
+    if (providerRuntime !== undefined && providerRuntime !== null) {
+      if (typeof providerRuntime !== "function") throw new Error("provider.start() harus mengembalikan fungsi cleanup atau tidak mengembalikan nilai.");
+      stopProvider = providerRuntime;
+    }
+  } catch (error) {
+    webhookWorker.stop();
+    store.close();
+    throw error;
+  }
   const expiryTimer = setInterval(() => store.expireDuePayments(), 15_000);
   expiryTimer.unref();
 
   server.listen(config.port, config.host, () => {
     console.log(`RapiQR Gateway berjalan di http://${config.host}:${config.port}`);
-    console.log(`Provider aktif: ${provider.name}${provider.name === "sandbox" ? " (transaksi simulasi)" : ""}`);
+    console.log(provider ? `Adapter provider aktif: ${provider.name}` : "Adapter provider belum dikonfigurasi; endpoint pembayaran belum aktif.");
   });
 
-  const shutdown = () => {
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     clearInterval(expiryTimer);
     webhookWorker.stop();
+    try {
+      await stopProvider?.();
+    } catch (error) {
+      console.error(`Adapter provider gagal dihentikan dengan bersih: ${error.message}`);
+    }
     server.close(() => {
       store.close();
       process.exit(0);
